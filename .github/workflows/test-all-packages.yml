@@ -80,6 +80,51 @@ jobs:
     - name: lint check
       run: yarn lint-check
 
+  dev-canary:
+    if: ${{github.event_name == 'push'}}
+    needs: build
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        # note: only use one node-version
+        node-version: ['14.x']
+    steps:
+    - uses: actions/setup-node@v1
+      with:
+        node-version: ${{ matrix.node-version }}
+    # BEGIN-RESTORE-BOILERPLATE
+    - name: restore built files
+      id: built
+      uses: actions/cache@v1
+      with:
+        path: .
+        key: ${{ runner.os }}-${{ matrix.node-version }}-built-${{ github.sha }}
+    - uses: actions/checkout@v2
+      with:
+        submodules: 'true'
+      if: steps.built.outputs.cache-hit != 'true'
+    - name: yarn install
+      run: yarn install
+      if: steps.built.outputs.cache-hit != 'true'
+    - name: yarn build
+      run: yarn build
+      if: steps.built.outputs.cache-hit != 'true'
+    # END-RESTORE-BOILERPLATE
+
+    # Adapted from https://johnny.sh/notes/publish-canary-lerna-cicd/
+    - name: configure NPM token
+      run: |
+        echo "//registry.npmjs.org/:_authToken=${NPM_TOKEN}" > ~/.npmrc
+      env:
+        NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
+    - name: check credentials
+      run: npm whoami
+    - name: publish to NPM dev tag
+      run: |
+        yarn lerna publish --conventional-prerelease --canary --exact \
+          --dist-tag=dev --preid=dev-$(git rev-parse --short=7 HEAD) \
+          --no-push --no-verify-access --yes
+
   benchmark:
     needs: build
     runs-on: ubuntu-latest
